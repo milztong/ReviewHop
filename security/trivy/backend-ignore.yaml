@@ -1,0 +1,17 @@
+vulnerabilities:
+  - id: CVE-2026-47884
+    purls:
+      - pkg:maven/org.springframework/spring-webmvc@6.2.19
+    expired_at: 2026-12-20
+    statement: >-
+      Exploitation requires XsltView together with an implicit view-rendering /**
+      mapping. ReviewHop exposes JSON REST controllers and configures no XSLT view.
+      Re-evaluate on a Spring Boot 3 compatible OSS fix or by 2026-12-20.
+  - id: CVE-2026-47890
+    purls:
+      - pkg:maven/org.springframework/spring-webmvc@6.2.19
+    expired_at: 2026-12-20
+    statement: >-
+      Exploitation requires Server-Sent Events that render view fragments with
+      attacker-controlled data. ReviewHop implements neither SSE nor view fragments.
+      Re-evaluate on a Spring Boot 3 compatible OSS fix or by 2026-12-20.

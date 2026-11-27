@@ -1,0 +1,95 @@
+spring:
+  application:
+    name: reviewhop-api
+  datasource:
+    url: ${ANKILEET_DB_URL:jdbc:postgresql://localhost:5432/ankileet}
+    username: ${ANKILEET_DB_USERNAME:ankileet_app}
+    password: ${ANKILEET_DB_PASSWORD:ankileet_app}
+    hikari:
+      maximum-pool-size: ${ANKILEET_DB_POOL_SIZE:10}
+  flyway:
+    enabled: true
+    placeholders:
+      applicationRole: ${ANKILEET_DB_USERNAME:ankileet_app}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${ANKILEET_OIDC_ISSUER:http://localhost:8180/realms/ankileet}
+          jwk-set-uri: ${ANKILEET_OIDC_JWK_SET_URI:http://localhost:8180/realms/ankileet/protocol/openid-connect/certs}
+          audiences: ${ANKILEET_OIDC_AUDIENCE:ankileet-api}
+
+server:
+  shutdown: graceful
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  info:
+    env:
+      enabled: true
+  tracing:
+    sampling:
+      probability: ${ANKILEET_TRACE_SAMPLE_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${ANKILEET_OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        enabled: ${ANKILEET_TELEMETRY_EXPORT_ENABLED:false}
+    metrics:
+      export:
+        enabled: ${ANKILEET_TELEMETRY_EXPORT_ENABLED:false}
+        url: ${ANKILEET_OTLP_METRICS_ENDPOINT:http://localhost:4318/v1/metrics}
+        step: ${ANKILEET_METRICS_EXPORT_STEP:15s}
+  opentelemetry:
+    resource-attributes:
+      deployment.environment: ${ANKILEET_DEPLOYMENT_ENVIRONMENT:local}
+
+logging:
+  structured:
+    format:
+      console: ecs
+
+info:
+  app:
+    name: ${spring.application.name}
+    description: ReviewHop backend API
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    display-request-duration: true
+    document-title: ReviewHop API
+
+ankileet:
+  security:
+    rate-limit:
+      enabled: ${ANKILEET_RATE_LIMIT_ENABLED:true}
+      read-requests-per-window: ${ANKILEET_RATE_LIMIT_READ_REQUESTS:300}
+      write-requests-per-window: ${ANKILEET_RATE_LIMIT_WRITE_REQUESTS:60}
+      window: ${ANKILEET_RATE_LIMIT_WINDOW:PT1M}
+      max-tracked-identities: ${ANKILEET_RATE_LIMIT_MAX_IDENTITIES:10000}
+  providers:
+    codewars:
+      api-base: ${ANKILEET_CODEWARS_API_BASE:https://www.codewars.com/api/v1}
+      public-site: ${ANKILEET_CODEWARS_PUBLIC_SITE:https://www.codewars.com}
+  worker:
+    enabled: ${ANKILEET_WORKER_ENABLED:false}
+    poll-delay: ${ANKILEET_WORKER_POLL_DELAY:PT2S}

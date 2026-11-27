@@ -1,0 +1,131 @@
+name: ankileet
+
+services:
+  database:
+    image: postgres:17.12-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ankileet}
+      POSTGRES_USER: ${POSTGRES_USER:-ankileet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ankileet}
+      ANKILEET_APP_DB_USERNAME: ${ANKILEET_APP_DB_USERNAME:-ankileet_app}
+      ANKILEET_APP_DB_PASSWORD: ${ANKILEET_APP_DB_PASSWORD:-ankileet_app}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/hetzner/postgres-init/01-create-application-role.sh:/docker-entrypoint-initdb.d/01-create-application-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ankileet
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8180}
+      ANKILEET_WEB_CLIENT_SECRET: ${ANKILEET_WEB_CLIENT_SECRET}
+      ANKILEET_PUBLIC_URL: http://localhost:${FRONTEND_PORT:-3000}
+      JAVA_OPTS_APPEND: "-XX:-UseBASE64Intrinsics"
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-8180}:8080"
+    volumes:
+      - ./deploy/keycloak/realm-ankileet.json:/opt/keycloak/data/import/realm-ankileet.json:ro
+      - keycloak-data:/opt/keycloak/data
+    networks:
+      - ankileet
+
+  backend:
+    image: reviewhop-backend:latest
+    build:
+      context: ./backend
+    environment:
+      ANKILEET_DB_URL: jdbc:postgresql://database:5432/${POSTGRES_DB:-ankileet}
+      ANKILEET_DB_USERNAME: ${ANKILEET_APP_DB_USERNAME:-ankileet_app}
+      ANKILEET_DB_PASSWORD: ${ANKILEET_APP_DB_PASSWORD:-ankileet_app}
+      SPRING_FLYWAY_USER: ${POSTGRES_USER:-ankileet}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-ankileet}
+      ANKILEET_OIDC_ISSUER: http://localhost:${KEYCLOAK_PORT:-8180}/realms/ankileet
+      ANKILEET_OIDC_JWK_SET_URI: http://keycloak:8080/realms/ankileet/protocol/openid-connect/certs
+      ANKILEET_TELEMETRY_EXPORT_ENABLED: ${ANKILEET_TELEMETRY_EXPORT_ENABLED:-false}
+      ANKILEET_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      ANKILEET_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+      ANKILEET_DEPLOYMENT_ENVIRONMENT: local
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      database:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/actuator/health/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    networks:
+      - ankileet
+
+  worker:
+    image: reviewhop-backend:latest
+    environment:
+      ANKILEET_DB_URL: jdbc:postgresql://database:5432/${POSTGRES_DB:-ankileet}
+      ANKILEET_DB_USERNAME: ${ANKILEET_APP_DB_USERNAME:-ankileet_app}
+      ANKILEET_DB_PASSWORD: ${ANKILEET_APP_DB_PASSWORD:-ankileet_app}
+      ANKILEET_WORKER_ENABLED: "true"
+      SPRING_FLYWAY_ENABLED: "false"
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      SPRING_APPLICATION_NAME: reviewhop-sync-worker
+      ANKILEET_DB_POOL_SIZE: 5
+      ANKILEET_TELEMETRY_EXPORT_ENABLED: ${ANKILEET_TELEMETRY_EXPORT_ENABLED:-false}
+      ANKILEET_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      ANKILEET_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+      ANKILEET_DEPLOYMENT_ENVIRONMENT: local
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - ankileet
+
+  frontend:
+    image: reviewhop-frontend:latest
+    build:
+      context: ./frontend
+    environment:
+      ANKILEET_API_BASE_URL: http://backend:8080
+      AUTH_URL: http://localhost:${FRONTEND_PORT:-3000}
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_TRUST_HOST: "true"
+      AUTH_KEYCLOAK_ID: ankileet-web
+      AUTH_KEYCLOAK_SECRET: ${ANKILEET_WEB_CLIENT_SECRET}
+      AUTH_KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-8180}/realms/ankileet
+      AUTH_KEYCLOAK_INTERNAL_ISSUER: http://keycloak:8080/realms/ankileet
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - ankileet
+
+volumes:
+  postgres-data:
+  keycloak-data:
+
+networks:
+  ankileet:
+    driver: bridge

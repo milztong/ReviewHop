@@ -1,0 +1,48 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+deploy/hetzner/secrets/
+backup-repository/
+
+# Local agent instructions
+/AGENTS.md
+
+# Java
+target/
+*.class
+
+# Node.js / Next.js
+node_modules/
+.next/
+/frontend/out/
+*.tsbuildinfo
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# IDE and operating system
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Logs and reports
+*.log
+coverage/
+reports/
+playwright-report/
+test-results/
+/artifacts/sbom/

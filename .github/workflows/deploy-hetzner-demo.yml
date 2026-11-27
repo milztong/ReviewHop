@@ -1,0 +1,234 @@
+name: Deploy Hetzner demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type DEPLOY-HETZNER to deploy the public demo
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-hetzner-demo
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy public demo
+    if: inputs.confirmation == 'DEPLOY-HETZNER' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: hetzner-demo
+    env:
+      DEPLOY_HOST: ${{ vars.HETZNER_HOST }}
+      DEPLOY_USER: ${{ vars.HETZNER_DEPLOY_USER }}
+      DEMO_DOMAIN: ${{ vars.DEMO_DOMAIN }}
+      KEYCLOAK_DOMAIN: ${{ vars.KEYCLOAK_DOMAIN }}
+      KEYCLOAK_ADMIN_DOMAIN: ${{ vars.KEYCLOAK_ADMIN_DOMAIN }}
+      KEYCLOAK_ADMIN_ALLOWED_CIDRS: ${{ vars.KEYCLOAK_ADMIN_ALLOWED_CIDRS }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Validate public deployment variables
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for required_value in \
+            "${DEPLOY_HOST}" \
+            "${DEPLOY_USER}" \
+            "${DEMO_DOMAIN}" \
+            "${KEYCLOAK_DOMAIN}" \
+            "${KEYCLOAK_ADMIN_DOMAIN}" \
+            "${KEYCLOAK_ADMIN_ALLOWED_CIDRS}"; do
+            test -n "${required_value}"
+          done
+
+          python3 - <<'PY'
+          import ipaddress
+          import os
+          import re
+
+          domains = [
+              os.environ["DEMO_DOMAIN"],
+              os.environ["KEYCLOAK_DOMAIN"],
+              os.environ["KEYCLOAK_ADMIN_DOMAIN"],
+          ]
+          domain_pattern = re.compile(
+              r"(?=^.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+"
+              r"[a-zA-Z]{2,63}"
+          )
+          if len(set(domains)) != len(domains):
+              raise SystemExit("Application, OIDC and admin domains must be distinct")
+          if any(domain_pattern.fullmatch(domain) is None for domain in domains):
+              raise SystemExit("Deployment domains must be plain DNS hostnames")
+
+          cidrs = os.environ["KEYCLOAK_ADMIN_ALLOWED_CIDRS"].split()
+          if not cidrs:
+              raise SystemExit("At least one Keycloak admin CIDR is required")
+          for value in cidrs:
+              network = ipaddress.ip_network(value, strict=False)
+              if network.prefixlen == 0:
+                  raise SystemExit("Keycloak admin access must not be open to the internet")
+          PY
+
+      - name: Sign in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve lowercase immutable image names
+        shell: bash
+        run: |
+          image_owner="${GITHUB_REPOSITORY_OWNER,,}"
+          {
+            echo "BACKEND_IMAGE=ghcr.io/${image_owner}/reviewhop-backend:${GITHUB_SHA}"
+            echo "FRONTEND_IMAGE=ghcr.io/${image_owner}/reviewhop-frontend:${GITHUB_SHA}"
+            echo "KEYCLOAK_IMAGE=ghcr.io/${image_owner}/reviewhop-keycloak:${GITHUB_SHA}"
+            echo "BACKUP_IMAGE=ghcr.io/${image_owner}/reviewhop-backup:${GITHUB_SHA}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Build immutable images
+        run: |
+          docker build --tag "${BACKEND_IMAGE}" backend
+          docker build --tag "${FRONTEND_IMAGE}" frontend
+          docker build --tag "${KEYCLOAK_IMAGE}" deploy/keycloak
+          docker build --tag "${BACKUP_IMAGE}" deploy/backup
+
+      - name: Push immutable images
+        run: |
+          docker push "${BACKEND_IMAGE}"
+          docker push "${FRONTEND_IMAGE}"
+          docker push "${KEYCLOAK_IMAGE}"
+          docker push "${BACKUP_IMAGE}"
+
+      - name: Configure verified SSH access
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.HETZNER_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${SSH_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Copy deployment definition
+        run: >-
+          scp
+          deploy/hetzner/compose.yml
+          deploy/hetzner/compose.backup.yml
+          deploy/hetzner/Caddyfile
+          "${DEPLOY_USER}@${DEPLOY_HOST}:/opt/ankileet/"
+
+      - name: Copy backup service definitions
+        run: >-
+          scp -r
+          deploy/hetzner/systemd
+          "${DEPLOY_USER}@${DEPLOY_HOST}:/opt/ankileet/"
+
+      - name: Copy database initialization
+        run: >-
+          scp -r
+          deploy/hetzner/postgres-init
+          "${DEPLOY_USER}@${DEPLOY_HOST}:/opt/ankileet/"
+
+      - name: Copy Keycloak realm definition
+        run: >-
+          scp -r
+          deploy/keycloak
+          "${DEPLOY_USER}@${DEPLOY_HOST}:/opt/ankileet/"
+
+      - name: Pull and start release
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "${GHCR_TOKEN}" | ssh "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "docker login ghcr.io --username '${{ github.actor }}' --password-stdin"
+          ssh "${DEPLOY_USER}@${DEPLOY_HOST}" bash -s -- \
+            "${DEMO_DOMAIN}" \
+            "${KEYCLOAK_DOMAIN}" \
+            "${KEYCLOAK_ADMIN_DOMAIN}" \
+            "${KEYCLOAK_ADMIN_ALLOWED_CIDRS}" \
+            "${BACKEND_IMAGE}" \
+            "${FRONTEND_IMAGE}" \
+            "${KEYCLOAK_IMAGE}" \
+            "${BACKUP_IMAGE}" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+          cd /opt/ankileet
+          export DOMAIN="$1"
+          export KEYCLOAK_DOMAIN="$2"
+          export KEYCLOAK_ADMIN_DOMAIN="$3"
+          export KEYCLOAK_ADMIN_ALLOWED_CIDRS="$4"
+          export BACKEND_IMAGE="$5"
+          export FRONTEND_IMAGE="$6"
+          export KEYCLOAK_IMAGE="$7"
+          export BACKUP_IMAGE="$8"
+          export KEYCLOAK_REALM_FILE=./keycloak/realm-ankileet.json
+          if grep -q '^BACKUP_IMAGE=' .env; then
+            sed -i "s|^BACKUP_IMAGE=.*|BACKUP_IMAGE=${BACKUP_IMAGE}|" .env
+          else
+            printf '\nBACKUP_IMAGE=%s\n' "${BACKUP_IMAGE}" >> .env
+          fi
+          docker pull "${BACKUP_IMAGE}"
+          docker compose --env-file .env --file compose.yml pull
+          docker compose --env-file .env --file compose.yml up --detach --remove-orphans --wait
+          REMOTE_SCRIPT
+
+      - name: Smoke-test public BFF
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            if response="$(curl --fail --silent --show-error --max-time 10 "https://${DEMO_DOMAIN}/api/system-status")" \
+              && jq -e '.state == "ready" and .status.database == "READY"' <<< "${response}"; then
+              echo "Hetzner demo smoke test passed: https://${DEMO_DOMAIN}"
+              exit 0
+            fi
+            echo "Attempt ${attempt}/30 is not ready yet"
+            sleep 10
+          done
+          echo "Hetzner demo did not become ready within five minutes" >&2
+          exit 1
+
+      - name: Verify public HTTPS headers and OIDC discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          issuer="https://${KEYCLOAK_DOMAIN}/realms/ankileet"
+          headers="$(curl --fail --silent --show-error --max-time 15 --dump-header - \
+            --output /dev/null "https://${DEMO_DOMAIN}/")"
+          grep -Eiq '^strict-transport-security:.*max-age=31536000' <<< "${headers}"
+          grep -Eiq "^content-security-policy:.*'nonce-[^']+'.*frame-ancestors 'none'" <<< "${headers}"
+          curl --fail --silent --show-error --max-time 15 \
+            "${issuer}/.well-known/openid-configuration" |
+            jq -e --arg issuer "${issuer}" '.issuer == $issuer' >/dev/null
+          for path in /v3/api-docs /swagger-ui.html; do
+            status="$(curl --silent --show-error --max-time 15 --output /dev/null \
+              --write-out '%{http_code}' "https://${DEMO_DOMAIN}${path}")"
+            test "${status}" = 404
+          done
+
+      - name: Remove unused images
+        if: success()
+        run: ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "docker image prune --force"
+
+      - name: Publish deployment summary
+        if: success()
+        run: |
+          {
+            echo "### ReviewHop Hetzner demo deployed"
+            echo "- URL: https://${DEMO_DOMAIN}"
+            echo "- OIDC issuer: https://${KEYCLOAK_DOMAIN}/realms/ankileet"
+            echo "- Image tag: ${GITHUB_SHA}"
+            echo "- Host access: verified SSH host key and protected environment"
+          } >> "${GITHUB_STEP_SUMMARY}"

@@ -1,0 +1,38 @@
+groups:
+  - name: ankileet-sync
+    rules:
+      - alert: ReviewHopTelemetryMissing
+        expr: up{job="otel-collector"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: technical
+        annotations:
+          summary: OpenTelemetry metrics are unavailable
+          runbook: docs/operations/observability-runbook.md
+      - alert: ReviewHopSyncDeadLettered
+        expr: increase(ankileet_worker_deliveries_total{outcome="dead_lettered"}[15m]) > 0
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: A provider synchronization reached the dead-letter state
+          runbook: docs/operations/observability-runbook.md
+      - alert: ReviewHopProviderFailures
+        expr: sum(increase(ankileet_provider_requests_total{outcome!="success"}[10m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          category: technical
+        annotations:
+          summary: Provider requests are failing repeatedly
+          runbook: docs/operations/observability-runbook.md
+      - alert: ReviewHopAuthenticatedRateLimitRejections
+        expr: sum(increase(ankileet_security_rate_limit_requests_total{outcome="rejected"}[10m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          category: technical
+        annotations:
+          summary: Authenticated API clients are repeatedly rate limited
+          runbook: docs/operations/capacity-resilience-runbook.md

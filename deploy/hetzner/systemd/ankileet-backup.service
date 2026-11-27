@@ -1,0 +1,16 @@
+[Unit]
+Description=ReviewHop encrypted PostgreSQL backup
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=deploy
+Group=docker
+WorkingDirectory=/opt/ankileet
+ExecStart=/usr/bin/flock --nonblock /opt/ankileet/.backup.lock /usr/bin/docker compose --env-file .env --file compose.yml --file compose.backup.yml --profile operations run --rm backup /usr/local/bin/backup.sh backup
+TimeoutStartSec=2h
+
+[Install]
+WantedBy=multi-user.target

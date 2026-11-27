@@ -1,0 +1,39 @@
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy frontend:3000
+	import security_headers
+}
+
+{$KEYCLOAK_DOMAIN} {
+	encode zstd gzip
+
+	@administration path /admin* /realms/master*
+	respond @administration 404
+
+	reverse_proxy keycloak:8080
+	import security_headers
+}
+
+{$KEYCLOAK_ADMIN_DOMAIN} {
+	@approved_admin remote_ip {$KEYCLOAK_ADMIN_ALLOWED_CIDRS}
+
+	handle @approved_admin {
+		reverse_proxy keycloak:8080
+	}
+
+	handle {
+		respond "Forbidden" 403
+	}
+
+	import security_headers
+}

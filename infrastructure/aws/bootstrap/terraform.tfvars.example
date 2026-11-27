@@ -1,0 +1,7 @@
+aws_region       = "eu-central-1"
+state_bucket_name = "REPLACE-WITH-GLOBALLY-UNIQUE-BUCKET-NAME"
+github_oidc_subject = "repo:REPLACE_OWNER/REPLACE_REPOSITORY:environment:staging"
+owner               = "REPLACE_OWNER"
+
+# Optional organization guardrail:
+# permissions_boundary_arn = "arn:aws:iam::123456789012:policy/AnkiLeetBoundary"

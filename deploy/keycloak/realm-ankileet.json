@@ -1,0 +1,68 @@
+{
+  "realm": "ankileet",
+  "enabled": true,
+  "displayName": "ReviewHop",
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 3600,
+  "sslRequired": "external",
+  "eventsEnabled": true,
+  "eventsListeners": [
+    "jboss-logging"
+  ],
+  "eventsExpiration": 2592000,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "ankileet-operator",
+        "description": "May retry dead-lettered ReviewHop synchronization jobs"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "ankileet-api",
+      "name": "ReviewHop API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "bearerOnly": true
+    },
+    {
+      "clientId": "ankileet-web",
+      "name": "ReviewHop Web BFF",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "${ANKILEET_WEB_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "${ANKILEET_PUBLIC_URL}/api/auth/callback/keycloak"
+      ],
+      "webOrigins": [
+        "${ANKILEET_PUBLIC_URL}"
+      ],
+      "protocolMappers": [
+        {
+          "name": "ankileet-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "ankileet-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker.io
+  - docker-compose-v2
+  - fail2ban
+  - unattended-upgrades
+
+users:
+  - default
+  - name: deploy
+    gecos: ReviewHop deployment user
+    groups: [docker]
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+ssh_pwauth: false
+disable_root: true
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-ankileet-hardening.conf
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin no
+      KbdInteractiveAuthentication no
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+runcmd:
+  - [systemctl, enable, --now, docker]
+  - [systemctl, enable, --now, fail2ban]
+  - [install, -d, -m, "0750", -o, deploy, -g, docker, /opt/ankileet]
+  - [systemctl, restart, ssh]

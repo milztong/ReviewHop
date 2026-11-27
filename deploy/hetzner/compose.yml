@@ -1,0 +1,194 @@
+name: ankileet-demo
+
+services:
+  database:
+    image: postgres:17.12-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      ANKILEET_APP_DB_USERNAME: ${ANKILEET_APP_DB_USERNAME}
+      ANKILEET_APP_DB_PASSWORD: ${ANKILEET_APP_DB_PASSWORD}
+      KEYCLOAK_DB: ${KEYCLOAK_DB}
+      KEYCLOAK_DB_USERNAME: ${KEYCLOAK_DB_USERNAME}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      BACKUP_DB_USERNAME: ${BACKUP_DB_USERNAME}
+      BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [application]
+
+  keycloak:
+    image: ${KEYCLOAK_IMAGE}
+    restart: unless-stopped
+    mem_limit: ${KEYCLOAK_MEMORY_LIMIT}
+    command:
+      - start
+      - --optimized
+      - --import-realm
+      - --spi-sticky-session-encoder--infinispan--should-attach-route=false
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://database:5432/${KEYCLOAK_DB}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USERNAME}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_HOSTNAME: https://${KEYCLOAK_DOMAIN}
+      KC_HOSTNAME_ADMIN: https://${KEYCLOAK_ADMIN_DOMAIN}
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_PROXY_TRUSTED_ADDRESSES: ${CADDY_INTERNAL_IP}
+      KC_CACHE: local
+      ANKILEET_PUBLIC_URL: https://${DOMAIN}
+      ANKILEET_WEB_CLIENT_SECRET: ${ANKILEET_WEB_CLIENT_SECRET}
+      JAVA_OPTS_APPEND: "-XX:-UseBASE64Intrinsics"
+    volumes:
+      - ${KEYCLOAK_REALM_FILE:-../keycloak/realm-ankileet.json}:/opt/keycloak/data/import/realm-ankileet.json:ro
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -ec
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '200 OK' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /opt/keycloak/data/tmp
+      - /opt/keycloak/data/transaction-logs
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [application]
+
+  backend:
+    image: ${BACKEND_IMAGE}
+    restart: unless-stopped
+    environment:
+      ANKILEET_DB_URL: jdbc:postgresql://database:5432/${POSTGRES_DB}
+      ANKILEET_DB_USERNAME: ${ANKILEET_APP_DB_USERNAME}
+      ANKILEET_DB_PASSWORD: ${ANKILEET_APP_DB_PASSWORD}
+      SPRING_FLYWAY_USER: ${POSTGRES_USER}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD}
+      ANKILEET_OIDC_ISSUER: https://${KEYCLOAK_DOMAIN}/realms/ankileet
+      ANKILEET_OIDC_JWK_SET_URI: http://keycloak:8080/realms/ankileet/protocol/openid-connect/certs
+      SPRINGDOC_API_DOCS_ENABLED: "false"
+      SPRINGDOC_SWAGGER_UI_ENABLED: "false"
+      ANKILEET_RATE_LIMIT_READ_REQUESTS: ${ANKILEET_RATE_LIMIT_READ_REQUESTS}
+      ANKILEET_RATE_LIMIT_WRITE_REQUESTS: ${ANKILEET_RATE_LIMIT_WRITE_REQUESTS}
+      ANKILEET_RATE_LIMIT_WINDOW: ${ANKILEET_RATE_LIMIT_WINDOW}
+      ANKILEET_RATE_LIMIT_MAX_IDENTITIES: ${ANKILEET_RATE_LIMIT_MAX_IDENTITIES}
+    depends_on:
+      database:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [application]
+
+  worker:
+    image: ${BACKEND_IMAGE}
+    restart: unless-stopped
+    environment:
+      ANKILEET_DB_URL: jdbc:postgresql://database:5432/${POSTGRES_DB}
+      ANKILEET_DB_USERNAME: ${ANKILEET_APP_DB_USERNAME}
+      ANKILEET_DB_PASSWORD: ${ANKILEET_APP_DB_PASSWORD}
+      ANKILEET_WORKER_ENABLED: "true"
+      SPRING_FLYWAY_ENABLED: "false"
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      SPRING_APPLICATION_NAME: reviewhop-sync-worker
+      ANKILEET_DB_POOL_SIZE: 5
+    depends_on:
+      backend:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [application]
+
+  frontend:
+    image: ${FRONTEND_IMAGE}
+    restart: unless-stopped
+    environment:
+      ANKILEET_API_BASE_URL: http://backend:8080
+      AUTH_URL: https://${DOMAIN}
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_TRUST_HOST: "true"
+      AUTH_KEYCLOAK_ID: ankileet-web
+      AUTH_KEYCLOAK_SECRET: ${ANKILEET_WEB_CLIENT_SECRET}
+      AUTH_KEYCLOAK_ISSUER: https://${KEYCLOAK_DOMAIN}/realms/ankileet
+      AUTH_KEYCLOAK_INTERNAL_ISSUER: http://keycloak:8080/realms/ankileet
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [application]
+
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+      KEYCLOAK_DOMAIN: ${KEYCLOAK_DOMAIN}
+      KEYCLOAK_ADMIN_DOMAIN: ${KEYCLOAK_ADMIN_DOMAIN}
+      KEYCLOAK_ADMIN_ALLOWED_CIDRS: ${KEYCLOAK_ADMIN_ALLOWED_CIDRS}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      application:
+        ipv4_address: ${CADDY_INTERNAL_IP}
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  application:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${APPLICATION_NETWORK_SUBNET}

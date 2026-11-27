@@ -1,0 +1,18 @@
+services:
+  performance:
+    image: grafana/k6:2.3.0
+    profiles: [performance]
+    environment:
+      API_BASE_URL: http://backend:8080
+      OIDC_BASE_URL: http://keycloak:8080/realms/ankileet
+      OIDC_CLIENT_ID: ankileet-web
+      OIDC_CLIENT_SECRET: ${ANKILEET_WEB_CLIENT_SECRET}
+    volumes:
+      - ./scripts/performance:/scripts:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    networks:
+      - ankileet

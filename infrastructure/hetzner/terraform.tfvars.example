@@ -1,0 +1,12 @@
+owner            = "REPLACE_OWNER"
+location         = "nbg1"
+server_type      = "cx23"
+ssh_public_key   = "ssh-ed25519 REPLACE_PUBLIC_KEY ankileet-deploy"
+ssh_allowed_cidrs = ["203.0.113.10/32"]
+enable_backups    = true
+deletion_protection = true
+enable_backup_object_storage = false
+backup_object_storage_location = "fsn1"
+# Provide through TF_VAR_* or an approved secret store only when explicitly enabled:
+# backup_object_storage_access_key = "REPLACE_ACCESS_KEY"
+# backup_object_storage_secret_key = "REPLACE_SECRET_KEY"

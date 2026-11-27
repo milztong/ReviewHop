@@ -1,0 +1,91 @@
+services:
+  backup:
+    image: ${BACKUP_IMAGE:-reviewhop-backup:local}
+    profiles: [operations]
+    environment:
+      PGHOST: database
+      PGPORT: 5432
+      PGUSER: ${BACKUP_DB_USERNAME}
+      POSTGRES_DB: ${POSTGRES_DB}
+      KEYCLOAK_DB: ${KEYCLOAK_DB}
+      BACKUP_DB_PASSWORD_FILE: /run/secrets/backup_db_password
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY}
+      RESTIC_PASSWORD_FILE: /run/secrets/restic_repository_password
+      RESTIC_CACHE_DIR: /tmp/restic-cache
+      BACKUP_S3_ACCESS_KEY_FILE: /run/secrets/backup_s3_access_key
+      BACKUP_S3_SECRET_KEY_FILE: /run/secrets/backup_s3_secret_key
+      BACKUP_HOST: ${BACKUP_HOST:-ankileet-demo}
+    secrets:
+      - backup_db_password
+      - restic_repository_password
+      - backup_s3_access_key
+      - backup_s3_secret_key
+    tmpfs:
+      - /tmp:mode=0700
+    depends_on:
+      database:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [application]
+
+  restore-database:
+    image: postgres:17.12-alpine
+    profiles: [restore-drill]
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/restore_verification_password
+    secrets:
+      - restore_verification_password
+    tmpfs:
+      - /var/lib/postgresql/data:mode=0700
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    networks: [application]
+
+  restore-verifier:
+    image: ${BACKUP_IMAGE:-reviewhop-backup:local}
+    profiles: [restore-drill]
+    environment:
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY}
+      RESTIC_PASSWORD_FILE: /run/secrets/restic_repository_password
+      RESTIC_CACHE_DIR: /tmp/restic-cache
+      BACKUP_S3_ACCESS_KEY_FILE: /run/secrets/backup_s3_access_key
+      BACKUP_S3_SECRET_KEY_FILE: /run/secrets/backup_s3_secret_key
+      BACKUP_HOST: ${BACKUP_HOST:-ankileet-demo}
+      RESTORE_CONFIRM_EPHEMERAL_TARGET: RESTORE-EPHEMERAL-ONLY
+      RESTORE_PGHOST: restore-database
+      RESTORE_PGPORT: 5432
+      RESTORE_PGUSER: postgres
+      RESTORE_POSTGRES_PASSWORD_FILE: /run/secrets/restore_verification_password
+    secrets:
+      - restic_repository_password
+      - backup_s3_access_key
+      - backup_s3_secret_key
+      - restore_verification_password
+    tmpfs:
+      - /tmp:mode=0700
+    depends_on:
+      restore-database:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [application]
+
+secrets:
+  backup_db_password:
+    file: ${BACKUP_DB_PASSWORD_FILE:-./secrets/backup-db-password}
+  restic_repository_password:
+    file: ${RESTIC_PASSWORD_FILE:-./secrets/restic-repository-password}
+  backup_s3_access_key:
+    file: ${BACKUP_S3_ACCESS_KEY_FILE:-./secrets/backup-s3-access-key}
+  backup_s3_secret_key:
+    file: ${BACKUP_S3_SECRET_KEY_FILE:-./secrets/backup-s3-secret-key}
+  restore_verification_password:
+    file: ${RESTORE_VERIFICATION_PASSWORD_FILE:-./secrets/restore-verification-password}

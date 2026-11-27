@@ -1,0 +1,50 @@
+discovery.docker "ankileet" {
+  host             = "http://docker-socket-proxy:2375"
+  refresh_interval = "5s"
+}
+
+discovery.relabel "ankileet" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "(backend|worker|frontend|keycloak|database|caddy)"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service_name"
+  }
+}
+
+loki.source.docker "ankileet" {
+  host          = "http://docker-socket-proxy:2375"
+  targets       = discovery.docker.ankileet.targets
+  labels        = { job = "ankileet" }
+  relabel_rules = discovery.relabel.ankileet.rules
+  forward_to    = [loki.process.ankileet.receiver]
+}
+
+loki.process "ankileet" {
+  forward_to = [loki.write.local.receiver]
+
+  stage.json {
+    expressions = {
+      trace_id = "traceId",
+      level    = "log.level",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
