@@ -21,33 +21,8 @@ synthetischen Beispielen, Screenshots und den Stand der öffentlichen Demo.
 ## Dokumentation
 
 - [Produktvision](docs/product/vision.md)
-- [Glossar](docs/product/glossary.md)
-- [Offene Entscheidungen](docs/product/open-decisions.md)
 - [Roadmap](docs/plans/roadmap.md)
-- [Definition of Done](docs/plans/definition-of-done.md)
-- [Phase-1-Verifikationsnachweis](docs/plans/phase-1-verification.md)
-- [Phase-2-Verifikationsnachweis](docs/plans/phase-2-verification.md)
-- [Phase-3-Verifikationsnachweis](docs/plans/phase-3-verification.md)
-- [Phase-4-Verifikationsnachweis](docs/plans/phase-4-verification.md)
-- [Phase-5-Verifikationsnachweis](docs/plans/phase-5-verification.md)
-- [Phase-6-Verifikationsnachweis](docs/plans/phase-6-verification.md)
-- [Backup- und Restore-Runbook](docs/operations/backup-restore-runbook.md)
-- [Kapazitäts- und Resilienz-Runbook](docs/operations/capacity-resilience-runbook.md)
-- [Phase-7-Verifikationsnachweis](docs/plans/phase-7-verification.md)
-- [Phase-8-Verifikationsnachweis](docs/plans/phase-8-verification.md)
-- [Phase-8-Produktentscheidungen](docs/product/phase-8-decisions.md)
-- [Threat Model](docs/security/threat-model.md)
-- [Security Review](docs/security/security-review.md)
-- [Observability-Runbook](docs/operations/observability-runbook.md)
-- [Keycloak-Schwachstellenbewertung](docs/security/keycloak-vulnerability-review.md)
-- [Hetzner-Demo-Runbook](docs/operations/hetzner-demo-runbook.md)
-- [Cloud-Kostenleitplanken](docs/operations/cloud-cost-guardrails.md)
-- [Terraform-Struktur](infrastructure/README.md)
-- [C4-Systemkontext](docs/architecture/system-context.md)
-- [C4-Containerdiagramm](docs/architecture/container-diagram.md)
-- [C4-Komponentenmodell](docs/architecture/backend-components.md)
-- [Domänenmodell](docs/architecture/domain-model.md)
-- [Architecture Decision Records](docs/adr/README.md)
+
 
 ## Vorgesehener Stack
 
